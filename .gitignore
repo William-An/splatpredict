@@ -1,0 +1,7 @@
+# Directory
+virtualenv/
+dataset/
+.vscode/
+splatnet2statink/
+.DS_store
+.DS_Store
