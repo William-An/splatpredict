@@ -3,5 +3,8 @@ virtualenv/
 dataset/
 .vscode/
 splatnet2statink/
+__pycache__/
+
+# System files
 .DS_store
 .DS_Store

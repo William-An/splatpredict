@@ -83,7 +83,7 @@ class NBC:
         for feature_name in feature_names:
             unique_count = sample_data[feature_name].unique().size
             # Partition feature if it is larger than threshold
-            if unique_count > max_discretize_count or self.model_params["continuous"].get(feature_name, False) == True:
+            if unique_count > max_discretize_count and self.model_params["continuous"].get(feature_name, False) == True:
                 if partition == "sqrt":
                     train_dataset[feature_name] = pd.cut(train_dataset[feature_name], bins_count)
                 elif partition == "qcut":
@@ -103,6 +103,7 @@ class NBC:
         self.calculate_conditional(train_dataset, smoothing=smoothing)
 
     def calculate_conditional(self, train_dataset, smoothing=True):
+        label_name = self.label_name
         label_values = self.priors.keys()
         for feature in self.feature_names:
             # Calculate the probability conditioning on label value for each feature value
