@@ -43,18 +43,12 @@ class NBC:
         # Config parameters for model
         self.model_params = model_params
 
-    def train(self, train_dataset=None, label_name="", train_data=None, train_label=None, max_discretize_count=10, sample_frac=0.5, partition="sqrt", q=10, smoothing=True):
+    def train(self, train_dataset=None, label_name="", train_data=None, train_label=None):
         """
         All of the inputs are in pandas dataframe
         train_dataset: training dataset combining data and label
         train_data: training data in pandas dataframe
         train_label: training label in pandas dataframe
-        max_discretize_count: if a feature contains feature counts over this value,
-            will classify data into ceil(sqrt(n)) bins where n is the number of entries
-        sample_frac: percent of data to be considered during counting unique feature value
-        partition: method to partition continuous data, can use either "sqrt" or "qcut"
-        q: bypass parameter into pd.qcut(), see it for for information
-        smoothing: laplace smoothing on the data to prevent zero probability
         """
 
         # 0. Create dataset
@@ -77,17 +71,19 @@ class NBC:
         self.priors = dict.fromkeys(train_dataset[self.label_name].unique())
 
         # 3. Partition continuous variable
+        partition = self.model_params["partition"]
         n = train_dataset.shape[0]
         bins_count = int(np.ceil(n**0.5))
-        sample_data = train_dataset.sample(frac=sample_frac)
+        sample_data = train_dataset.sample(frac=self.model_params["sample_frac"])
         for feature_name in feature_names:
             unique_count = sample_data[feature_name].unique().size
             # Partition feature if it is larger than threshold
-            if unique_count > max_discretize_count and self.model_params["continuous"].get(feature_name, False) == True:
+            if unique_count > self.model_params["max_discretize_count"] and self.model_params["continuous"].get(feature_name, False) == True:
                 if partition == "sqrt":
                     train_dataset[feature_name] = pd.cut(train_dataset[feature_name], bins_count)
+                    self.bins_count = bins_count
                 elif partition == "qcut":
-                    train_dataset[feature_name] = pd.qcut(train_dataset[feature_name], q=q, duplicates="drop")
+                    train_dataset[feature_name] = pd.qcut(train_dataset[feature_name], q=self.model_params["q"], duplicates="drop")
                 else:
                     raise ValueError("Invalid partition scheme for continuous variable")
 
@@ -100,7 +96,7 @@ class NBC:
         self.calculate_prior(train_dataset)
 
         # conditional
-        self.calculate_conditional(train_dataset, smoothing=smoothing)
+        self.calculate_conditional(train_dataset, smoothing=self.model_params["smoothing"])
 
     def calculate_conditional(self, train_dataset, smoothing=True):
         label_name = self.label_name
@@ -110,9 +106,12 @@ class NBC:
             # using value_counts()
             feature_label_pair = train_dataset[[feature, label_name]]
             feature_values = None
-            if smoothing and self.categories.get(feature, None) is None:
+            category_tmp = self.categories.get(feature, None)
+            if smoothing and category_tmp is None:
                 # Do not smooth interval feature as it will be handled by min and max
                 feature_values = self.model_params["smoothing_params"][feature]
+            elif category_tmp is not None:
+                feature_values = category_tmp   # For sqrt
             else:
                 feature_values = feature_label_pair[feature].unique()   # All possible value for this feature
 
@@ -127,7 +126,10 @@ class NBC:
                 N = feature_single_label.shape[0]
 
                 # Count feature unique value
-                k = len(feature_values)
+                if self.model_params["partition"] == "sqrt":
+                    k = self.bins_count
+                else:
+                    k = len(feature_values)
 
                 # Use the following conditional possibility formula
                 # P(X = xi | y = yj) = count(xi and yj)/count(yj)
@@ -192,26 +194,33 @@ class NBC:
                 value = data[feature]
                 if category is None:
                     # No need to classify into category data
-                    predicted_prob[label] = predicted_prob[label] * self.conditional[feature][label][value]
+                    try:
+                        predicted_prob[label] = predicted_prob[label] * self.conditional[feature][label][value]
+                    except KeyError:
+                        print(f"KeyError: feature: {feature}, label: {label}, value: {value}")
                 else:
                     # Need to calculate the category of the data feature value
-                    tmp = category.contains(value)
-                    intervalList = category[tmp]
+                    # TODO Handle if the value is already a category value
                     value_cat_map = None
-                    if intervalList.size == 1:
-                        # Can find a category for the given value
-                        value_cat_map = intervalList[0]
-                    else:
-                        # TODO For real category data, need to handle order issue
-                        # TODO But for interval, order is fine
-                        # Check min and max
-                        minInterval = category[0]
-                        if (value < minInterval.left):
-                            # If less than min
-                            value_cat_map = minInterval
+                    try: 
+                        tmp = category.contains(value)  # If value 
+                        intervalList = category[tmp]
+                        if intervalList.size == 1:
+                            # Can find a category for the given value
+                            value_cat_map = intervalList[0]
                         else:
-                            # Else assume to be larger than max
-                            value_cat_map = category[category.size - 1]
+                            # TODO For real category data, need to handle order issue
+                            # TODO But for interval, order is fine
+                            # Check min and max
+                            minInterval = category[0]
+                            if (value < minInterval.left):
+                                # If less than min
+                                value_cat_map = minInterval
+                            else:
+                                # Else assume to be larger than max
+                                value_cat_map = category[category.size - 1]
+                    except NotImplementedError:
+                        value_cat_map = value
                     predicted_prob[label] = predicted_prob[label] * self.conditional[feature][label][value_cat_map]
 
         # Calculate actual probability
@@ -255,65 +264,28 @@ if __name__ == "__main__":
     test_dataset = test_dataset.astype("int32")
 
     # Smoothing params: record number of classes for each attributes
+    """
+    smoothing_params: dict of feature_name:list mapping, list contains all the possible 
+        values for this given feature
+    continuous: dict of feature_name:Boolean mapping, True if the feature is continous
+        and will apply partition to it to discretize the data
+    max_discretize_count: if a feature contains feature counts over this value,
+        will classify data into ceil(sqrt(n)) bins where n is the number of entries (deprecated)
+    sample_frac: percent of data to be considered during counting unique feature value
+    partition: method to partition continuous data, can use either "sqrt" or "qcut"
+    q: bypass parameter into pd.qcut(), see it for for information
+    smoothing: laplace smoothing on the data to prevent zero probability
+    """
     model_params = {
         "smoothing_params": {
-            "Pclass": [1, 2, 3],
-            "Sex": [0, 1],
-            "Embarked": [0, 1, 77],
-            "relatives": [0, 1, 2, 3, 4, 5, 6, 7, 10],
-            "IsAlone": [0, 1]
+
         },
         "continuous": {
-            "Fare": True,
-            "Age": True
-        }
+
+        },
+        "max_discretize_count": 10, 
+        "sample_frac": 0.5, 
+        "partition": "qcut",
+        "q":10,
+        "smoothing": True
     }
-
-    # Create model
-    nbc = NBC(model_params)
-
-    # Train on model
-    nbc.train(train_dataset, label_name=label_name, partition="qcut", q=5, smoothing=False)
-
-    # Test model on test dataset
-    nbc.evaluate(test_dataset, label_name)
-
-    # Part 1 Q3a
-    # model_params = {
-    #     "smoothing_params": {
-    #         "Pclass": [1, 2, 3],
-    #         "Sex": [0, 1],
-    #         "Embarked": [0, 1, 77],
-    #         "relatives": [0, 1, 2, 3, 4, 5, 6, 7, 10],
-    #         "IsAlone": [0, 1]
-    #     },
-    #     "continuous": {
-    #         "Fare": True,
-    #         "Age": True
-    #     }
-    # }
-    #
-    # nbc = NBC(model_params)
-    # for frac in [0.01, 0.1, 0.5]:
-    #     num_trials = 10
-    #     sum_zero_one_loss = 0
-    #     sum_squared_loss = 0
-    #     sum_accuracy = 0
-    #     for trial in range(num_trials):
-    #         # Partition into train and test dataset
-    #         partition_train_dataset = train_dataset.sample(frac=frac, random_state=200)
-    #         partition_test_dataset = train_dataset.drop(partition_train_dataset.index).reset_index(drop=True)
-    #         partition_train_dataset = partition_train_dataset.reset_index(drop=True)
-    #
-    #         # Train
-    #         nbc.train(train_dataset=partition_train_dataset, label_name=label_name, partition="qcut", q=5,
-    #                   smoothing=True)
-    #
-    #         # Evaluate
-    #         zero_one_loss, squared_loss, accuracy = nbc.evaluate(partition_test_dataset, label_name)
-    #         sum_zero_one_loss += zero_one_loss
-    #         sum_squared_loss += squared_loss
-    #         sum_accuracy += accuracy
-    #     print(
-    #         f"Training size: {frac} mean zero-one loss: {sum_zero_one_loss / num_trials:.4f} mean squared loss: {sum_squared_loss / num_trials:.4f} mean accuracy: {sum_accuracy / num_trials:.4f}")
-
