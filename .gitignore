@@ -4,6 +4,7 @@ dataset/
 .vscode/
 splatnet2statink/
 __pycache__/
+struct/
 
 # System files
 .DS_store
