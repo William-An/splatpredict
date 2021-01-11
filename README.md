@@ -7,8 +7,9 @@
 1. [x] Support for continuous training
 2. [ ] Discard A1, A2 order information?
    1. [ ] Consider them as weapons for `A` and `B` and multiply probability?
-   2. [ ] Treat A1, A2, A3, A4 weapons as the same
-   3. [ ] But this fail to consider who is holding the weapon
+      1. [ ] Treat A1, A2, A3, A4 weapons as the same
+      2. [ ] Add combined columns in `model_params` to tell the model to combine the columns when calculating probability and predicting
+   2. [ ] But this fail to consider who is holding the weapon
       1. [ ] but the naive bayes assumption assume that each feature is independent
       2. [ ] now we have dependent columns, what should we do?
 3. [ ] Current issue

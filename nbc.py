@@ -38,11 +38,21 @@ class NBC:
         self.categories = {}
         self.label_name = ""
         self.feature_names = []
+        self.__model_params_transform(model_params)
         self.model_params = model_params
 
     def config(self, model_params):
         # Config parameters for model
         self.model_params = model_params
+
+    @staticmethod
+    def __model_params_transform(model_params):
+        tmp = dict()
+        combined_dict = model_params["combined"]
+        for key in combined_dict:
+            for col in combined_dict[key]:
+                tmp[col] = key
+        model_params["combined"] = tmp
 
     def train(self, train_dataset=None, label_name="", train_data=None, train_label=None):
         """
@@ -307,6 +317,9 @@ if __name__ == "__main__":
         values for this given feature
     continuous: dict of feature_name:Boolean mapping, True if the feature is continous
         and will apply partition to it to discretize the data
+    combined: dict of combined name, each has a list of columns that has same class values
+        and need to be combined when calculating probability. The dict will be transformed
+        to a reversed mapping at initialization to speed up time.
     max_discretize_count: if a feature contains feature counts over this value,
         will classify data into ceil(sqrt(n)) bins where n is the number of entries (deprecated)
     sample_frac: percent of data to be considered during counting unique feature value
@@ -320,6 +333,11 @@ if __name__ == "__main__":
         },
         "continuous": {
 
+        },
+        "combined": {
+            "weapon": ["A1-weapon"],
+            "rank": ["A1-rank"],
+            "level": ["A1-level"]
         },
         "max_discretize_count": 10, 
         "sample_frac": 0.5, 

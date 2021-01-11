@@ -5,6 +5,7 @@ dataset/
 splatnet2statink/
 __pycache__/
 struct/
+.idea/
 
 # System files
 .DS_store
